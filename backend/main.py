@@ -9,7 +9,9 @@ import models
 import schemas
 from database import Base, engine, get_db
 
+
 Base.metadata.create_all(bind=engine)
+
 
 app = FastAPI(
     title="Student Task Scheduler API",
@@ -17,7 +19,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Allow the Streamlit frontend (or anything) to call this API.
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -43,32 +45,11 @@ def create_task(task: schemas.TaskCreate, db: Session = Depends(get_db)):
 
 
 @app.get("/tasks", response_model=List[schemas.TaskOut], tags=["tasks"])
-def read_tasks(category: Optional[str] = None, db: Session = Depends(get_db)):
+def read_tasks(
+    category: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
     return crud.get_tasks(db, category)
-
-
-@app.get("/tasks/{task_id}", response_model=schemas.TaskOut, tags=["tasks"])
-def read_task(task_id: int, db: Session = Depends(get_db)):
-    db_task = crud.get_task(db, task_id)
-    if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return db_task
-
-
-@app.put("/tasks/{task_id}", response_model=schemas.TaskOut, tags=["tasks"])
-def update_task(task_id: int, task: schemas.TaskUpdate, db: Session = Depends(get_db)):
-    db_task = crud.update_task(db, task_id, task)
-    if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return db_task
-
-
-@app.delete("/tasks/{task_id}", tags=["tasks"])
-def delete_task(task_id: int, db: Session = Depends(get_db)):
-    db_task = crud.delete_task(db, task_id)
-    if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {"message": "Task deleted"}
 
 
 @app.get("/tasks/conflicts/check", tags=["conflicts"])
@@ -77,8 +58,59 @@ def check_conflicts(db: Session = Depends(get_db)):
 
 
 @app.post("/tasks/conflicts/{conflict_id}/dismiss", tags=["conflicts"])
-def dismiss_conflict(conflict_id: int, db: Session = Depends(get_db)):
+def dismiss_conflict(
+    conflict_id: int,
+    db: Session = Depends(get_db)
+):
     log_entry = crud.dismiss_conflict(db, conflict_id)
+
     if not log_entry:
-        raise HTTPException(status_code=404, detail="Conflict not found")
-    return {"message": "Conflict dismissed"}
+        raise HTTPException(
+            status_code=404,
+            detail="Conflict not found"
+        )
+
+    return {"message": "Conflict acknowledged for 30 minutes"}
+
+
+@app.get("/tasks/{task_id}", response_model=schemas.TaskOut, tags=["tasks"])
+def read_task(task_id: int, db: Session = Depends(get_db)):
+    db_task = crud.get_task(db, task_id)
+
+    if not db_task:
+        raise HTTPException(
+            status_code=404,
+            detail="Task not found"
+        )
+
+    return db_task
+
+
+@app.put("/tasks/{task_id}", response_model=schemas.TaskOut, tags=["tasks"])
+def update_task(
+    task_id: int,
+    task: schemas.TaskUpdate,
+    db: Session = Depends(get_db)
+):
+    db_task = crud.update_task(db, task_id, task)
+
+    if not db_task:
+        raise HTTPException(
+            status_code=404,
+            detail="Task not found"
+        )
+
+    return db_task
+
+
+@app.delete("/tasks/{task_id}", tags=["tasks"])
+def delete_task(task_id: int, db: Session = Depends(get_db)):
+    db_task = crud.delete_task(db, task_id)
+
+    if not db_task:
+        raise HTTPException(
+            status_code=404,
+            detail="Task not found"
+        )
+
+    return {"message": "Task deleted"}
