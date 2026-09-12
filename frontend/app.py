@@ -149,16 +149,84 @@ with tab1:
                     st.write(f"**Priority:** {task['priority'].title()}")
                     st.write(f"**Status:** {task['status'].title()}")
 
-                    col1, col2 = st.columns(2)
+                    col1, col2, col3 = st.columns(3)
                     with col1:
                         if task["status"] == "pending":
                             if st.button("✅ Mark done", key=f"done_{task['id']}"):
                                 requests.put(f"{API_URL}/tasks/{task['id']}", json={"status": "done"}, timeout=10)
                                 st.rerun()
                     with col2:
+                        if st.button("✏️ Edit", key=f"edit_{task['id']}"):
+                            st.session_state["editing_task_id"] = task["id"]
+                            st.rerun()
+                    with col3:
                         if st.button("🗑️ Delete", key=f"del_{task['id']}"):
                             requests.delete(f"{API_URL}/tasks/{task['id']}", timeout=10)
                             st.rerun()
+
+                    if st.session_state.get("editing_task_id") == task["id"]:
+                        st.markdown("---")
+                        st.markdown("**Edit task**")
+                        with st.form(f"edit_form_{task['id']}"):
+                            edit_title = st.text_input("Title", value=task["title"])
+                            edit_description = st.text_area("Description", value=task.get("description") or "")
+
+                            edit_categories = categories if task["category"] in categories else categories + [task["category"]]
+                            edit_category = st.selectbox(
+                                "Category", edit_categories, index=edit_categories.index(task["category"])
+                            )
+                            edit_subject = st.text_input("Subject", value=task.get("subject") or "")
+
+                            ecol1, ecol2 = st.columns(2)
+                            with ecol1:
+                                edit_start = st.date_input("Scheduled date", value=date.fromisoformat(task["start_date"]))
+                            with ecol2:
+                                edit_due = st.date_input("Due date", value=date.fromisoformat(task["due_date"]))
+
+                            edit_priority = st.selectbox(
+                                "Priority", ["low", "medium", "high"],
+                                index=["low", "medium", "high"].index(task["priority"]),
+                                format_func=str.title,
+                            )
+                            edit_status = st.selectbox(
+                                "Status", ["pending", "done"],
+                                index=["pending", "done"].index(task["status"]),
+                                format_func=str.title,
+                            )
+
+                            fcol1, fcol2 = st.columns(2)
+                            with fcol1:
+                                save_clicked = st.form_submit_button("💾 Save changes")
+                            with fcol2:
+                                cancel_clicked = st.form_submit_button("Cancel")
+
+                            if save_clicked:
+                                if edit_due < edit_start:
+                                    st.error("Due date can't be before scheduled date")
+                                else:
+                                    update_payload = {
+                                        "title": edit_title,
+                                        "description": edit_description or None,
+                                        "category": edit_category,
+                                        "subject": edit_subject or None,
+                                        "start_date": str(edit_start),
+                                        "due_date": str(edit_due),
+                                        "priority": edit_priority,
+                                        "status": edit_status,
+                                    }
+                                    resp = requests.put(
+                                        f"{API_URL}/tasks/{task['id']}", json=update_payload, timeout=10
+                                    )
+                                    if resp.status_code == 200:
+                                        st.session_state["editing_task_id"] = None
+                                        st.success("Task updated!")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"Failed: {resp.text}")
+
+                            if cancel_clicked:
+                                st.session_state["editing_task_id"] = None
+                                st.rerun()
     elif r is not None:
         st.error("Could not fetch tasks from the API.")
 
