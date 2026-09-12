@@ -74,3 +74,11 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
 @app.get("/tasks/conflicts/check", tags=["conflicts"])
 def check_conflicts(db: Session = Depends(get_db)):
     return crud.sync_and_get_conflicts(db)
+
+
+@app.post("/tasks/conflicts/{conflict_id}/dismiss", tags=["conflicts"])
+def dismiss_conflict(conflict_id: int, db: Session = Depends(get_db)):
+    log_entry = crud.dismiss_conflict(db, conflict_id)
+    if not log_entry:
+        raise HTTPException(status_code=404, detail="Conflict not found")
+    return {"message": "Conflict dismissed"}

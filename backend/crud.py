@@ -54,9 +54,13 @@ def delete_task(db: Session, task_id: int):
 def sync_and_get_conflicts(db: Session):
     """
     Recomputes currently-overlapping high-priority, pending task pairs, logs them,
-    and flips any previously-active pair to 'resolved' once it no longer overlaps
+    and flips any previously-logged pair to 'resolved' once it no longer overlaps
     (e.g. because the user rescheduled one of the tasks, changed its priority,
     marked it done, or deleted it).
+
+    A pair the user has explicitly dismissed ("proceed anyway") stays 'dismissed'
+    on repeat checks as long as it's still overlapping — it only flips to
+    'resolved' once the overlap itself genuinely goes away.
     """
     tasks = (
         db.query(models.Task)
@@ -83,7 +87,8 @@ def sync_and_get_conflicts(db: Session):
                     min(t1.due_date, t2.due_date),
                 )
 
-    # upsert currently-active pairs into the log
+    # upsert currently-overlapping pairs into the log
+    pair_to_log = {}
     for (lo_id, hi_id), (lo, hi, ov_start, ov_end) in active_pairs.items():
         log_entry = (
             db.query(models.ConflictLog)
@@ -95,34 +100,44 @@ def sync_and_get_conflicts(db: Session):
             log_entry.task_2_title = hi.title
             log_entry.overlap_start = ov_start
             log_entry.overlap_end = ov_end
-            log_entry.status = "active"
+            # don't clobber a user's explicit "proceed anyway" while it's still overlapping
+            if log_entry.status != "dismissed":
+                log_entry.status = "active"
             log_entry.resolved_at = None
         else:
-            db.add(
-                models.ConflictLog(
-                    task_1_id=lo_id,
-                    task_2_id=hi_id,
-                    task_1_title=lo.title,
-                    task_2_title=hi.title,
-                    overlap_start=ov_start,
-                    overlap_end=ov_end,
-                    status="active",
-                )
+            log_entry = models.ConflictLog(
+                task_1_id=lo_id,
+                task_2_id=hi_id,
+                task_1_title=lo.title,
+                task_2_title=hi.title,
+                overlap_start=ov_start,
+                overlap_end=ov_end,
+                status="active",
             )
+            db.add(log_entry)
+        pair_to_log[(lo_id, hi_id)] = log_entry
     db.commit()
+    for log_entry in pair_to_log.values():
+        db.refresh(log_entry)
 
-    # anything that WAS active but isn't in this check's active set anymore -> resolved
-    still_marked_active = (
-        db.query(models.ConflictLog).filter(models.ConflictLog.status == "active").all()
+    # anything that WAS active or dismissed but isn't in this check's set anymore -> genuinely resolved
+    lingering = (
+        db.query(models.ConflictLog)
+        .filter(models.ConflictLog.status.in_(["active", "dismissed"]))
+        .all()
     )
-    for log_entry in still_marked_active:
+    for log_entry in lingering:
         if (log_entry.task_1_id, log_entry.task_2_id) not in active_pairs:
             log_entry.status = "resolved"
             log_entry.resolved_at = datetime.utcnow()
     db.commit()
 
-    active_out = [
-        {
+    active_out = []
+    dismissed_out = []
+    for key, (lo, hi, ov_start, ov_end) in active_pairs.items():
+        log_entry = pair_to_log[key]
+        entry_dict = {
+            "conflict_id": log_entry.id,
             "task_1": lo.title,
             "task_1_start": lo.start_date.isoformat(),
             "task_1_due": lo.due_date.isoformat(),
@@ -132,8 +147,10 @@ def sync_and_get_conflicts(db: Session):
             "overlap_start": ov_start.isoformat(),
             "overlap_end": ov_end.isoformat(),
         }
-        for (lo, hi, ov_start, ov_end) in active_pairs.values()
-    ]
+        if log_entry.status == "dismissed":
+            dismissed_out.append(entry_dict)
+        else:
+            active_out.append(entry_dict)
 
     resolved_logs = (
         db.query(models.ConflictLog)
@@ -152,4 +169,14 @@ def sync_and_get_conflicts(db: Session):
         for log in resolved_logs
     ]
 
-    return {"active": active_out, "resolved": resolved_out}
+    return {"active": active_out, "dismissed": dismissed_out, "resolved": resolved_out}
+
+
+def dismiss_conflict(db: Session, conflict_id: int):
+    log_entry = db.query(models.ConflictLog).filter(models.ConflictLog.id == conflict_id).first()
+    if not log_entry:
+        return None
+    log_entry.status = "dismissed"
+    db.commit()
+    db.refresh(log_entry)
+    return log_entry

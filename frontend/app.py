@@ -269,6 +269,7 @@ with tab3:
         if r.status_code == 200:
             data = r.json()
             active = data.get("active", [])
+            dismissed = data.get("dismissed", [])
             resolved = data.get("resolved", [])
 
             if not active:
@@ -285,6 +286,18 @@ with tab3:
                         f"({t1_days} day{'s' if t1_days != 1 else ''} available)\n"
                         f"- **{c['task_2']}**: {fmt_date(c['task_2_start'])} → {fmt_date(c['task_2_due'])} "
                         f"({t2_days} day{'s' if t2_days != 1 else ''} available)"
+                    )
+                    if st.button("👍 Proceed anyway", key=f"dismiss_{c['conflict_id']}"):
+                        requests.post(f"{API_URL}/tasks/conflicts/{c['conflict_id']}/dismiss", timeout=10)
+                        st.rerun()
+
+            if dismissed:
+                st.markdown("### 🤝 Proceeding anyway")
+                st.caption("You chose to keep these overlapping schedules — they'll move to Resolved once the dates actually stop overlapping")
+                for c in dismissed:
+                    st.info(
+                        f"**{c['task_1']}** and **{c['task_2']}** — still overlapping "
+                        f"({fmt_date(c['overlap_start'])} → {fmt_date(c['overlap_end'])}), acknowledged"
                     )
 
             if resolved:
