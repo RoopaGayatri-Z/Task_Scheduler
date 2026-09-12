@@ -12,12 +12,6 @@ class PriorityEnum(str, enum.Enum):
     high = "high"
 
 
-class CategoryEnum(str, enum.Enum):
-    assignment = "assignment"
-    revision = "revision"
-    general = "general"
-
-
 class StatusEnum(str, enum.Enum):
     pending = "pending"
     done = "done"
@@ -29,7 +23,7 @@ class Task(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
-    category = Column(Enum(CategoryEnum), default=CategoryEnum.general, nullable=False)
+    category = Column(String, default="General", nullable=False)
     subject = Column(String, nullable=True)  # used when category == 'revision', e.g. "DBMS"
     start_date = Column(Date, nullable=False)
     due_date = Column(Date, nullable=False)
