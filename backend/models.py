@@ -1,6 +1,6 @@
 import enum
 
-from sqlalchemy import Column, Integer, String, Date, DateTime, Enum
+from sqlalchemy import Column, Integer, String, Date, DateTime, Enum, UniqueConstraint
 from sqlalchemy.sql import func
 
 from database import Base
@@ -23,6 +23,7 @@ class Task(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
+    # Free-text category so users can define their own (e.g. "Assignments", "Revisions", "Clubs").
     category = Column(String, default="General", nullable=False)
     subject = Column(String, nullable=True)  # used when category == 'revision', e.g. "DBMS"
     start_date = Column(Date, nullable=False)
@@ -31,3 +32,24 @@ class Task(Base):
     status = Column(Enum(StatusEnum), default=StatusEnum.pending, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ConflictLog(Base):
+    """
+    Tracks each high-priority overlapping task pair over time, so the UI can show
+    a 'Resolved' section once a pair stops overlapping (e.g. after rescheduling).
+    """
+
+    __tablename__ = "conflict_log"
+    __table_args__ = (UniqueConstraint("task_1_id", "task_2_id", name="uq_conflict_pair"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_1_id = Column(Integer, nullable=False)
+    task_2_id = Column(Integer, nullable=False)
+    task_1_title = Column(String, nullable=False)
+    task_2_title = Column(String, nullable=False)
+    overlap_start = Column(Date, nullable=False)
+    overlap_end = Column(Date, nullable=False)
+    status = Column(String, default="active", nullable=False)  # 'active' or 'resolved'
+    first_detected_at = Column(DateTime(timezone=True), server_default=func.now())
+    resolved_at = Column(DateTime(timezone=True), nullable=True)

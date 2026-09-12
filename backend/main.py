@@ -17,6 +17,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Allow the Streamlit frontend (or anything) to call this API.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -72,4 +73,4 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
 
 @app.get("/tasks/conflicts/check", tags=["conflicts"])
 def check_conflicts(db: Session = Depends(get_db)):
-    return crud.get_conflicts(db)
+    return crud.sync_and_get_conflicts(db)

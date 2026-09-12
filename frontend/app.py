@@ -267,21 +267,34 @@ with tab3:
     try:
         r = requests.get(f"{API_URL}/tasks/conflicts/check", timeout=10)
         if r.status_code == 200:
-            conflicts = r.json()
-            if not conflicts:
-                st.success("No conflicts detected 🎉")
-            for c in conflicts:
-                t1_days = duration_days(c["task_1_start"], c["task_1_due"])
-                t2_days = duration_days(c["task_2_start"], c["task_2_due"])
-                st.warning(
-                    f"**{c['task_1']}** and **{c['task_2']}** overlap between "
-                    f"{fmt_date(c['overlap_start'])} and {fmt_date(c['overlap_end'])} — "
-                    f"both are high priority, so consider choosing different scheduled dates for one of them.\n\n"
-                    f"- **{c['task_1']}**: {fmt_date(c['task_1_start'])} → {fmt_date(c['task_1_due'])} "
-                    f"({t1_days} day{'s' if t1_days != 1 else ''} available)\n"
-                    f"- **{c['task_2']}**: {fmt_date(c['task_2_start'])} → {fmt_date(c['task_2_due'])} "
-                    f"({t2_days} day{'s' if t2_days != 1 else ''} available)"
-                )
+            data = r.json()
+            active = data.get("active", [])
+            resolved = data.get("resolved", [])
+
+            if not active:
+                st.success("No active conflicts 🎉")
+            else:
+                for c in active:
+                    t1_days = duration_days(c["task_1_start"], c["task_1_due"])
+                    t2_days = duration_days(c["task_2_start"], c["task_2_due"])
+                    st.warning(
+                        f"**{c['task_1']}** and **{c['task_2']}** overlap between "
+                        f"{fmt_date(c['overlap_start'])} and {fmt_date(c['overlap_end'])} — "
+                        f"both are high priority, so consider choosing different scheduled dates for one of them.\n\n"
+                        f"- **{c['task_1']}**: {fmt_date(c['task_1_start'])} → {fmt_date(c['task_1_due'])} "
+                        f"({t1_days} day{'s' if t1_days != 1 else ''} available)\n"
+                        f"- **{c['task_2']}**: {fmt_date(c['task_2_start'])} → {fmt_date(c['task_2_due'])} "
+                        f"({t2_days} day{'s' if t2_days != 1 else ''} available)"
+                    )
+
+            if resolved:
+                st.markdown("### ✅ Resolved")
+                st.caption("Conflicts that no longer overlap — you already fixed these")
+                for c in resolved:
+                    st.info(
+                        f"**{c['task_1']}** and **{c['task_2']}** — resolved "
+                        f"(previously overlapped {fmt_date(c['overlap_start'])} → {fmt_date(c['overlap_end'])})"
+                    )
         else:
             st.error("Could not fetch conflicts.")
     except requests.exceptions.RequestException as e:
