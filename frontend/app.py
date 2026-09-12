@@ -14,11 +14,28 @@ def fmt_date(iso_str: str) -> str:
     return d.strftime("%b %-d")
 
 
+def days_left_str(due_iso: str) -> str:
+    diff = (date.fromisoformat(due_iso) - date.today()).days
+    if diff < 0:
+        return f"Overdue by {abs(diff)}d"
+    if diff == 0:
+        return "Due today"
+    if diff == 1:
+        return "1 day left"
+    return f"{diff} days left"
+
+
+def duration_days(start_iso: str, due_iso: str) -> int:
+    """Inclusive number of days between start and due, e.g. same day = 1."""
+    return (date.fromisoformat(due_iso) - date.fromisoformat(start_iso)).days + 1
+
+
 def get_categories() -> list:
     try:
         r = requests.get(f"{API_URL}/categories", timeout=10)
         if r.status_code == 200:
             existing = r.json()
+            # merge defaults with whatever's already in the DB, no duplicates, keep order sensible
             merged = list(dict.fromkeys(DEFAULT_CATEGORIES + existing))
             return merged
     except requests.exceptions.RequestException:
@@ -27,6 +44,7 @@ def get_categories() -> list:
 
 
 def bucket_for(due_iso: str) -> str:
+    """Classify a due date into Today / This Week / Next Week / Later / Overdue."""
     due = date.fromisoformat(due_iso)
     today = date.today()
     days_diff = (due - today).days
@@ -36,6 +54,7 @@ def bucket_for(due_iso: str) -> str:
     if days_diff == 0:
         return "Today"
 
+    # Monday-start week boundaries
     this_week_end = today + timedelta(days=(6 - today.weekday()))
     next_week_end = this_week_end + timedelta(days=7)
 
@@ -54,6 +73,7 @@ st.caption("Conflict-aware task & revision tracker — backend REST API + Supaba
 
 tab1, tab2, tab3 = st.tabs(["📋 All Tasks", "➕ Add Task", "⚠️ Conflicts"])
 
+# ---------------------------------------------------------------- Add Task
 with tab2:
     st.subheader("Add a new task")
 
@@ -107,6 +127,7 @@ with tab2:
                 except requests.exceptions.RequestException as e:
                     st.error(f"Could not reach the API at {API_URL}: {e}")
 
+# ---------------------------------------------------------------- All Tasks
 with tab1:
     st.subheader("All Tasks")
 
@@ -125,6 +146,7 @@ with tab1:
         if not tasks:
             st.info("No tasks yet — add one in the 'Add Task' tab.")
 
+        # group tasks into buckets
         grouped = {b: [] for b in BUCKET_ORDER}
         for task in tasks:
             grouped[bucket_for(task["due_date"])].append(task)
@@ -139,13 +161,20 @@ with tab1:
             st.markdown(f"### {bucket}")
             for task in sorted(bucket_tasks, key=lambda t: t["due_date"]):
                 emoji = priority_emoji.get(task["priority"], "⚪")
-                label = f"{emoji} {task['title']} — due {fmt_date(task['due_date'])}"
+                label = (
+                    f"{emoji} {task['title']} — due {fmt_date(task['due_date'])} "
+                    f"· {days_left_str(task['due_date'])}"
+                )
                 with st.expander(label):
                     st.write(f"**Category:** {task['category']}")
                     if task.get("subject"):
                         st.write(f"**Subject:** {task['subject']}")
                     st.write(f"**Description:** {task.get('description') or '—'}")
-                    st.write(f"**Window:** {fmt_date(task['start_date'])} → {fmt_date(task['due_date'])}")
+                    window_days = duration_days(task["start_date"], task["due_date"])
+                    st.write(
+                        f"**Window:** {fmt_date(task['start_date'])} → {fmt_date(task['due_date'])} "
+                        f"({window_days} day{'s' if window_days != 1 else ''} to work on it)"
+                    )
                     st.write(f"**Priority:** {task['priority'].title()}")
                     st.write(f"**Status:** {task['status'].title()}")
 
@@ -164,6 +193,7 @@ with tab1:
                             requests.delete(f"{API_URL}/tasks/{task['id']}", timeout=10)
                             st.rerun()
 
+                    # ---- Inline edit form, shown only for the task currently being edited ----
                     if st.session_state.get("editing_task_id") == task["id"]:
                         st.markdown("---")
                         st.markdown("**Edit task**")
@@ -230,6 +260,7 @@ with tab1:
     elif r is not None:
         st.error("Could not fetch tasks from the API.")
 
+# ---------------------------------------------------------------- Conflicts
 with tab3:
     st.subheader("Conflict Warnings")
     st.caption("High-priority, pending tasks whose date windows overlap")
@@ -240,9 +271,16 @@ with tab3:
             if not conflicts:
                 st.success("No conflicts detected 🎉")
             for c in conflicts:
+                t1_days = duration_days(c["task_1_start"], c["task_1_due"])
+                t2_days = duration_days(c["task_2_start"], c["task_2_due"])
                 st.warning(
-                    f"**{c['task_1']}** overlaps with **{c['task_2']}** "
-                    f"between {fmt_date(c['overlap_start'])} and {fmt_date(c['overlap_end'])}"
+                    f"**{c['task_1']}** and **{c['task_2']}** overlap between "
+                    f"{fmt_date(c['overlap_start'])} and {fmt_date(c['overlap_end'])} — "
+                    f"both are high priority, so consider choosing different scheduled dates for one of them.\n\n"
+                    f"- **{c['task_1']}**: {fmt_date(c['task_1_start'])} → {fmt_date(c['task_1_due'])} "
+                    f"({t1_days} day{'s' if t1_days != 1 else ''} available)\n"
+                    f"- **{c['task_2']}**: {fmt_date(c['task_2_start'])} → {fmt_date(c['task_2_due'])} "
+                    f"({t2_days} day{'s' if t2_days != 1 else ''} available)"
                 )
         else:
             st.error("Could not fetch conflicts.")

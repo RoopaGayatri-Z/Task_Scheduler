@@ -74,7 +74,11 @@ def get_conflicts(db: Session):
                 conflicts.append(
                     {
                         "task_1": t1.title,
+                        "task_1_start": t1.start_date.isoformat(),
+                        "task_1_due": t1.due_date.isoformat(),
                         "task_2": t2.title,
+                        "task_2_start": t2.start_date.isoformat(),
+                        "task_2_due": t2.due_date.isoformat(),
                         "overlap_start": max(t1.start_date, t2.start_date).isoformat(),
                         "overlap_end": min(t1.due_date, t2.due_date).isoformat(),
                     }
