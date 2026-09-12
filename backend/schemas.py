@@ -3,13 +3,13 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from models import PriorityEnum, CategoryEnum, StatusEnum
+from models import PriorityEnum, StatusEnum
 
 
 class TaskBase(BaseModel):
     title: str
     description: Optional[str] = None
-    category: CategoryEnum = CategoryEnum.general
+    category: str = "General"
     subject: Optional[str] = None
     start_date: date
     due_date: date
@@ -24,7 +24,7 @@ class TaskCreate(TaskBase):
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    category: Optional[CategoryEnum] = None
+    category: Optional[str] = None
     subject: Optional[str] = None
     start_date: Optional[date] = None
     due_date: Optional[date] = None

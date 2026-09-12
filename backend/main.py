@@ -17,7 +17,6 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Allow the Streamlit frontend (or anything) to call this API.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,6 +29,11 @@ app.add_middleware(
 @app.get("/", tags=["health"])
 def root():
     return {"message": "Task Scheduler API is running"}
+
+
+@app.get("/categories", tags=["tasks"])
+def read_categories(db: Session = Depends(get_db)):
+    return crud.get_categories(db)
 
 
 @app.post("/tasks", response_model=schemas.TaskOut, tags=["tasks"])

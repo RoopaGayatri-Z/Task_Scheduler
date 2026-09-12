@@ -6,6 +6,11 @@ import models
 import schemas
 
 
+def get_categories(db: Session):
+    rows = db.query(models.Task.category).distinct().all()
+    return sorted({r[0] for r in rows if r[0]})
+
+
 def get_tasks(db: Session, category: Optional[str] = None):
     query = db.query(models.Task)
     if category:
