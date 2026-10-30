@@ -1,0 +1,43 @@
+# 3 identical backend containers behind an Nginx load balancer.
+# All three talk to the SAME cloud database (Supabase) defined in backend/.env.
+#
+# Pick the Nginx config with the NGINX_CONF variable (default = 3 instances, round-robin):
+#   PowerShell:  $env:NGINX_CONF="./nginx/nginx.single.conf"; docker compose up -d --force-recreate nginx
+x-backend: &backend
+  build: ./backend
+  image: task-scheduler-backend:hardened
+  env_file: ./backend/.env
+  expose:
+    - "8000"
+  restart: unless-stopped
+
+services:
+  backend1:
+    <<: *backend
+    container_name: backend1
+    environment:
+      INSTANCE_NAME: backend1
+
+  backend2:
+    <<: *backend
+    container_name: backend2
+    environment:
+      INSTANCE_NAME: backend2
+
+  backend3:
+    <<: *backend
+    container_name: backend3
+    environment:
+      INSTANCE_NAME: backend3
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: nginx_lb
+    ports:
+      - "8080:80"
+    volumes:
+      - ${NGINX_CONF:-./nginx/nginx.three.conf}:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend1
+      - backend2
+      - backend3

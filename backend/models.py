@@ -1,6 +1,6 @@
 import enum
 
-from sqlalchemy import Column, Integer, String, Date, DateTime, Enum, UniqueConstraint
+from sqlalchemy import Boolean, Column, Integer, String, Date, DateTime, Enum, UniqueConstraint, ForeignKey
 from sqlalchemy.sql import func
 
 from database import Base
@@ -21,6 +21,7 @@ class Task(Base):
     __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
     category = Column(String, default="General", nullable=False)
@@ -80,3 +81,20 @@ class ConflictLog(Base):
         DateTime(timezone=True),
         nullable=True
     )
+
+class User(Base):
+    """
+    Application account. Passwords are stored ONLY as salted bcrypt hashes,
+    never as plain text. totp_secret is the shared secret for the
+    authenticator app (Google/Microsoft Authenticator).
+    """
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    role = Column(String, default="student", nullable=False)  # student | faculty | viewer
+    totp_secret = Column(String, nullable=True)
+    totp_enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

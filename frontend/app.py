@@ -1,17 +1,33 @@
+import io
+import os
 from datetime import date, timedelta
 
+import qrcode
 import requests
 import streamlit as st
 
 
-API_URL = st.secrets.get("API_URL", "http://localhost:8000")
+def _api_url() -> str:
+    default = os.environ.get("API_URL", "http://localhost:8000")
+    try:
+        return st.secrets.get("API_URL", default)
+    except Exception:
+        return default
+
+
+API_URL = _api_url()
+
+# Every API call goes through this session, which carries the login token.
+http = requests.Session()
+if "token" in st.session_state:
+    http.headers["Authorization"] = f"Bearer {st.session_state['token']}"
 
 DEFAULT_CATEGORIES = ["Assignments", "Revisions", "General"]
 
 
 def fmt_date(iso_str: str) -> str:
     d = date.fromisoformat(iso_str)
-    return d.strftime("%b %-d")
+    return f"{d.strftime('%b')} {d.day}"
 
 
 def days_left_str(due_iso: str) -> str:
@@ -35,7 +51,7 @@ def duration_days(start_iso: str, due_iso: str) -> int:
 
 def get_categories() -> list:
     try:
-        r = requests.get(f"{API_URL}/categories", timeout=10)
+        r = http.get(f"{API_URL}/categories", timeout=10)
 
         if r.status_code == 200:
             existing = r.json()
@@ -83,6 +99,79 @@ st.caption(
     "backend REST API + Supabase Postgres"
 )
 
+
+def logout():
+    for key in ("token", "role", "username"):
+        st.session_state.pop(key, None)
+
+
+def error_text(resp) -> str:
+    try:
+        detail = resp.json().get("detail", resp.text)
+        if isinstance(detail, list):  # pydantic validation errors
+            return "; ".join(d.get("msg", "invalid input") for d in detail)
+        return str(detail)
+    except Exception:
+        return resp.text
+
+
+if "token" not in st.session_state:
+    st.subheader("Sign in to continue")
+    login_tab, register_tab = st.tabs(["🔐 Log in", "📝 Register"])
+
+    with login_tab:
+        with st.form("login_form"):
+            lu = st.text_input("Username")
+            lp = st.text_input("Password", type="password")
+            lc = st.text_input("Authenticator code (6 digits)", max_chars=6)
+            if st.form_submit_button("Log in"):
+                try:
+                    resp = requests.post(
+                        f"{API_URL}/auth/login",
+                        json={"username": lu, "password": lp, "totp_code": lc},
+                        timeout=15,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        st.session_state["token"] = data["access_token"]
+                        st.session_state["role"] = data["role"]
+                        st.session_state["username"] = data["username"]
+                        st.rerun()
+                    else:
+                        st.error(error_text(resp))
+                except requests.exceptions.RequestException as e:
+                    st.error(f"Could not reach the API at {API_URL}: {e}")
+
+    with register_tab:
+        st.caption("New accounts are created as 'student'. You'll scan a QR code with Google/Microsoft Authenticator.")
+        with st.form("register_form"):
+            ru = st.text_input("Choose a username (min 3 characters)")
+            rp = st.text_input("Choose a password (min 8 characters)", type="password")
+            if st.form_submit_button("Create account"):
+                try:
+                    resp = requests.post(
+                        f"{API_URL}/auth/register",
+                        json={"username": ru, "password": rp},
+                        timeout=15,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        st.success("Account created. Scan this QR code in your authenticator app, then log in.")
+                        buf = io.BytesIO()
+                        qrcode.make(data["otpauth_uri"]).save(buf, format="PNG")
+                        st.image(buf.getvalue(), width=220)
+                        st.code(data["totp_secret"], language=None)
+                        st.caption("Can't scan? Enter this key manually in the authenticator app.")
+                    else:
+                        st.error(error_text(resp))
+                except requests.exceptions.RequestException as e:
+                    st.error(f"Could not reach the API at {API_URL}: {e}")
+    st.stop()
+
+st.sidebar.write(f"Signed in as **{st.session_state['username']}** ({st.session_state['role']})")
+if st.sidebar.button("Log out"):
+    logout()
+    st.rerun()
 
 tab1, tab2, tab3 = st.tabs(
     ["📋 All Tasks", "➕ Add Task", "⚠️ Conflicts"]
@@ -165,7 +254,7 @@ with tab2:
                 }
 
                 try:
-                    r = requests.post(
+                    r = http.post(
                         f"{API_URL}/tasks",
                         json=payload,
                         timeout=10
@@ -199,7 +288,7 @@ with tab1:
     )
 
     try:
-        r = requests.get(
+        r = http.get(
             f"{API_URL}/tasks",
             params=params,
             timeout=10
@@ -210,6 +299,11 @@ with tab1:
         st.error(
             f"Could not reach the API at {API_URL}: {e}"
         )
+
+    if r is not None and r.status_code == 401:
+        logout()
+        st.warning("Your session expired. Please log in again.")
+        st.rerun()
 
     if r is not None and r.status_code == 200:
         tasks = r.json()
@@ -294,7 +388,7 @@ with tab1:
                                 "✅ Mark done",
                                 key=f"done_{task['id']}"
                             ):
-                                requests.put(
+                                http.put(
                                     f"{API_URL}/tasks/{task['id']}",
                                     json={"status": "done"},
                                     timeout=10
@@ -315,7 +409,7 @@ with tab1:
                             "🗑️ Delete",
                             key=f"del_{task['id']}"
                         ):
-                            requests.delete(
+                            http.delete(
                                 f"{API_URL}/tasks/{task['id']}",
                                 timeout=10
                             )
@@ -430,7 +524,7 @@ with tab1:
                                         "status": edit_status,
                                     }
 
-                                    resp = requests.put(
+                                    resp = http.put(
                                         f"{API_URL}/tasks/{task['id']}",
                                         json=update_payload,
                                         timeout=10
@@ -468,7 +562,7 @@ with tab3:
     )
 
     try:
-        r = requests.get(
+        r = http.get(
             f"{API_URL}/tasks/conflicts/check",
             timeout=10
         )
@@ -518,7 +612,7 @@ with tab3:
                         "👍 Proceed anyway",
                         key=f"dismiss_{c['conflict_id']}"
                     ):
-                        response = requests.post(
+                        response = http.post(
                             f"{API_URL}/tasks/conflicts/"
                             f"{c['conflict_id']}/dismiss",
                             timeout=10

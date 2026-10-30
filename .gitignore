@@ -1,2 +1,12 @@
+
+.env
+.env.*
+!.env.example
 **/__pycache__/
 *.pyc
+.venv/
+.streamlit/secrets.toml
+backend/.env
+backend/.env.*
+!backend/.env.example
+frontend/.streamlit/secrets.toml

@@ -1,3 +1,4 @@
+
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -10,13 +11,18 @@ import schemas
 ACKNOWLEDGEMENT_DURATION_MINUTES = 30
 
 
-def get_categories(db: Session):
-    rows = db.query(models.Task.category).distinct().all()
+def get_categories(db: Session, user_id: int):
+    rows = (
+        db.query(models.Task.category)
+        .filter(models.Task.user_id == user_id)
+        .distinct()
+        .all()
+    )
     return sorted({r[0] for r in rows if r[0]})
 
 
-def get_tasks(db: Session, category: Optional[str] = None):
-    query = db.query(models.Task)
+def get_tasks(db: Session, user_id: int, category: Optional[str] = None):
+    query = db.query(models.Task).filter(models.Task.user_id == user_id)
 
     if category:
         query = query.filter(models.Task.category == category)
@@ -24,12 +30,19 @@ def get_tasks(db: Session, category: Optional[str] = None):
     return query.order_by(models.Task.due_date).all()
 
 
-def get_task(db: Session, task_id: int):
-    return db.query(models.Task).filter(models.Task.id == task_id).first()
+def get_task(db: Session, task_id: int, user_id: int):
+    return (
+        db.query(models.Task)
+        .filter(
+            models.Task.id == task_id,
+            models.Task.user_id == user_id
+        )
+        .first()
+    )
 
 
-def create_task(db: Session, task: schemas.TaskCreate):
-    db_task = models.Task(**task.dict())
+def create_task(db: Session, task: schemas.TaskCreate, user_id: int):
+    db_task = models.Task(**task.dict(), user_id=user_id)
 
     db.add(db_task)
     db.commit()
@@ -38,8 +51,8 @@ def create_task(db: Session, task: schemas.TaskCreate):
     return db_task
 
 
-def update_task(db: Session, task_id: int, task: schemas.TaskUpdate):
-    db_task = get_task(db, task_id)
+def update_task(db: Session, task_id: int, task: schemas.TaskUpdate, user_id: int):
+    db_task = get_task(db, task_id, user_id)
 
     if not db_task:
         return None
@@ -53,8 +66,8 @@ def update_task(db: Session, task_id: int, task: schemas.TaskUpdate):
     return db_task
 
 
-def delete_task(db: Session, task_id: int):
-    db_task = get_task(db, task_id)
+def delete_task(db: Session, task_id: int, user_id: int):
+    db_task = get_task(db, task_id, user_id)
 
     if not db_task:
         return None
@@ -65,10 +78,11 @@ def delete_task(db: Session, task_id: int):
     return db_task
 
 
-def sync_and_get_conflicts(db: Session):
+def sync_and_get_conflicts(db: Session, user_id: int):
     tasks = (
         db.query(models.Task)
         .filter(
+            models.Task.user_id == user_id,
             models.Task.priority == models.PriorityEnum.high,
             models.Task.status == models.StatusEnum.pending,
         )
@@ -149,9 +163,16 @@ def sync_and_get_conflicts(db: Session):
     for log_entry in pair_to_log.values():
         db.refresh(log_entry)
 
+    user_task_ids = (
+        db.query(models.Task.id)
+        .filter(models.Task.user_id == user_id)
+    )
+
     lingering = (
         db.query(models.ConflictLog)
         .filter(
+            models.ConflictLog.task_1_id.in_(user_task_ids),
+            models.ConflictLog.task_2_id.in_(user_task_ids),
             models.ConflictLog.status.in_(["active", "dismissed"])
         )
         .all()
@@ -216,10 +237,19 @@ def sync_and_get_conflicts(db: Session):
     }
 
 
-def dismiss_conflict(db: Session, conflict_id: int):
+def dismiss_conflict(db: Session, conflict_id: int, user_id: int):
+    user_task_ids = (
+        db.query(models.Task.id)
+        .filter(models.Task.user_id == user_id)
+    )
+
     log_entry = (
         db.query(models.ConflictLog)
-        .filter(models.ConflictLog.id == conflict_id)
+        .filter(
+            models.ConflictLog.id == conflict_id,
+            models.ConflictLog.task_1_id.in_(user_task_ids),
+            models.ConflictLog.task_2_id.in_(user_task_ids)
+        )
         .first()
     )
 

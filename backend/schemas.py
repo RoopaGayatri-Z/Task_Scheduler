@@ -1,7 +1,8 @@
+
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from models import PriorityEnum, StatusEnum
 
@@ -39,3 +40,31 @@ class TaskOut(TaskBase):
 
     class Config:
         from_attributes = True
+
+
+# -------------------- Authentication schemas --------------------
+
+class UserRegister(BaseModel):
+    username: str = Field(min_length=3, max_length=40)
+    # bcrypt only uses the first 72 bytes
+    password: str = Field(min_length=8, max_length=64)
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+    totp_code: str = Field(min_length=6, max_length=6)
+
+
+class RegisterOut(BaseModel):
+    username: str
+    role: str
+    totp_secret: str
+    otpauth_uri: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    role: str
+    username: str
